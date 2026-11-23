@@ -310,8 +310,7 @@ function extractFeesWithNorm(rawText, normCtx) {
 
   rawCandidates.sort((a, b) => a.matchStart - b.matchStart);
 
-  const countPerClause = new Map();
-  const staged = [];
+  const filtered = [];
 
   for (const cand of rawCandidates) {
     const [clauseStart, clauseEnd] = getContainingClauseBounds(
@@ -326,9 +325,44 @@ function extractFeesWithNorm(rawText, normCtx) {
       continue;
     }
 
-    const clauseKey = `${clauseStart}:${clauseEnd}`;
-    countPerClause.set(clauseKey, (countPerClause.get(clauseKey) || 0) + 1);
-    staged.push({ ...cand, clauseStart, clauseEnd, clauseKey, clauseText });
+    const isHeading = /[A-Z]/.test(clauseText) && !/[a-z]/.test(clauseText);
+    filtered.push({
+      ...cand,
+      clauseStart,
+      clauseEnd,
+      clauseKey: `${clauseStart}:${clauseEnd}`,
+      clauseText,
+      isHeading
+    });
+  }
+
+  const countPerClause = new Map();
+  const staged = [];
+
+  for (let i = 0; i < filtered.length; i += 1) {
+    const cand = filtered[i];
+    if (cand.isHeading) {
+      let duplicatedInBody = false;
+      for (let j = i + 1; j < filtered.length; j += 1) {
+        const next = filtered[j];
+        if (next.matchStart - cand.matchEnd > 320) break;
+        if (
+          !next.isHeading &&
+          next.matchStart >= cand.matchEnd &&
+          next.rawAmount === cand.rawAmount &&
+          next.period === cand.period
+        ) {
+          duplicatedInBody = true;
+          break;
+        }
+      }
+      if (duplicatedInBody) {
+        continue;
+      }
+    }
+
+    countPerClause.set(cand.clauseKey, (countPerClause.get(cand.clauseKey) || 0) + 1);
+    staged.push(cand);
   }
 
   const seenFeeKeys = new Map();
