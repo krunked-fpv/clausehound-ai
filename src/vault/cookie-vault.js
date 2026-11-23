@@ -791,6 +791,20 @@ export function createVaultController(env = {}) {
     let resolved;
     let healSource = null;
 
+    const applySelfHealRecovery = async (survivingState) => {
+      const next = normalizeVaultState(
+        {
+          ...survivingState,
+          selfHealRecoveries: survivingState.selfHealRecoveries + 1
+        },
+        nowFn
+      );
+      writeLsState(next);
+      await writeIdbState(next);
+      writeCookieState(next);
+      return next;
+    };
+
     if (bakedState && !lsState && !idbState) {
       resolved = cloneVaultState(bakedState);
       writeLsState(resolved);
@@ -798,30 +812,13 @@ export function createVaultController(env = {}) {
       await writeIdbState(resolved);
       healSource = "baked";
     } else if (!lsState && !idbState && cookieState) {
-      resolved = normalizeVaultState(
-        {
-          ...cookieState,
-          selfHealRecoveries: cookieState.selfHealRecoveries + 1
-        },
-        nowFn
-      );
-      writeLsState(resolved);
-      writeCookieState(resolved);
-      await writeIdbState(resolved);
+      resolved = await applySelfHealRecovery(cookieState);
       healSource = "cookie";
     } else if (lsState && !idbState) {
-      resolved = cloneVaultState(lsState);
-      await writeIdbState(resolved);
-      if (!cookieState || cookieState.checksum !== resolved.checksum) {
-        writeCookieState(resolved);
-      }
+      resolved = await applySelfHealRecovery(lsState);
       healSource = "localStorage";
     } else if (!lsState && idbState) {
-      resolved = cloneVaultState(idbState);
-      writeLsState(resolved);
-      if (!cookieState || cookieState.checksum !== resolved.checksum) {
-        writeCookieState(resolved);
-      }
+      resolved = await applySelfHealRecovery(idbState);
       healSource = "idb";
     } else if (lsState && idbState) {
       if (lsState.checksum !== idbState.checksum) {
