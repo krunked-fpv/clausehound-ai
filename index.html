@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en" data-theme="vellum">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0F1115">
+  <title>ClauseHound Local — Faraday Brass Desk</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="./assets/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="./src/ui/desk-theme.css">
+  <script id="clausehound-boot-sync">
+    (() => {
+      const COOKIE_NAME = "krunked-cookie-vault-v1";
+      const LS_KEY = "clausehound_vault_v1";
+      const COOKIE_ATTRS = "path=/; SameSite=Lax; max-age=31536000";
+      const VALID_THEMES = { vellum: true, midnight: true };
+      const VALID_TONES = { collaborative: true, bilateral: true, counsel: true };
+      const BUILTIN_SPECIMENS = {
+        "sterling-lease": true,
+        "apex-nda": true,
+        "cobalt-saas-msa": true,
+        "oakridge-hoa": true,
+        "custom-draft": true
+      };
+      const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+      const decoder = typeof TextDecoder === "function" ? new TextDecoder("utf-8", { fatal: true }) : null;
+
+      function utf8Encode(str) {
+        if (encoder) return encoder.encode(str);
+        const bytes = [];
+        for (let i = 0; i < str.length; i += 1) {
+          let c = str.charCodeAt(i);
+          if (c < 0x80) bytes.push(c);
+          else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+          else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+        }
+        return new Uint8Array(bytes);
+      }
+
+      function canonicalize(value, isRoot) {
+        if (value === null || typeof value === "boolean" || typeof value === "string") {
+          return JSON.stringify(value);
+        }
+        if (typeof value === "number") {
+          return Number.isFinite(value) ? JSON.stringify(value) : "null";
+        }
+        if (Array.isArray(value)) {
+          return "[" + value.map((v) => (v === undefined || typeof v === "function" || typeof v === "symbol" ? "null" : canonicalize(v, false))).join(",") + "]";
+        }
+        if (typeof value === "object") {
+          const keys = Object.keys(value)
+            .filter((k) => (!isRoot || k !== "checksum") && value[k] !== undefined && typeof value[k] !== "function")
+            .sort();
+          return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalize(value[k], false)).join(",") + "}";
+        }
+        return "null";
+      }
+
+      function computeChecksum(obj) {
+        const bytes = utf8Encode(canonicalize(obj || {}, true));
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < bytes.length; i += 1) {
+          hash ^= bytes[i];
+          hash = Math.imul(hash, 0x01000193) >>> 0;
+        }
+        return (hash >>> 0).toString(16).padStart(8, "0");
+      }
+
+      function toBase64Url(bytes) {
+        let bin = "";
+        for (let i = 0; i < bytes.length; i += 0x2000) {
+          bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x2000));
+        }
+        return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      }
+
+      function fromBase64Url(str) {
+        if (typeof str !== "string" || !/^[A-Za-z0-9\-_]+$/.test(str)) return null;
+        const padded = str.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (str.length % 4)) % 4);
+        try {
+          const bin = atob(padded);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
+          return bytes;
+        } catch {
+          return null;
+        }
+      }
+
+      function validateState(raw) {
+        let obj = raw;
+        if (typeof obj === "string") {
+          try { obj = JSON.parse(obj); } catch { return null; }
+        }
+        if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+        if (obj.version !== 1 || !VALID_THEMES[obj.theme] || !VALID_TONES[obj.defaultTone]) return null;
+        if (typeof obj.asmrMixLevel !== "number" || !Number.isFinite(obj.asmrMixLevel) || obj.asmrMixLevel < 0 || obj.asmrMixLevel > 1) return null;
+        if (typeof obj.airGapLocked !== "boolean") return null;
+        if (typeof obj.activeSpecimenId !== "string" || obj.activeSpecimenId.length === 0) return null;
+        if (typeof obj.dailyStreakDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(obj.dailyStreakDate)) return null;
+        if (typeof obj.lifetimeTrapsNeutralized !== "number" || !Number.isFinite(obj.lifetimeTrapsNeutralized) || obj.lifetimeTrapsNeutralized < 0) return null;
+        if (typeof obj.lifetimeAnnualDollarsSaved !== "number" || !Number.isFinite(obj.lifetimeAnnualDollarsSaved) || obj.lifetimeAnnualDollarsSaved < 0) return null;
+        if (typeof obj.selfHealRecoveries !== "number" || !Number.isFinite(obj.selfHealRecoveries) || obj.selfHealRecoveries < 0) return null;
+        if (!obj.neutralizedRuleMap || typeof obj.neutralizedRuleMap !== "object" || Array.isArray(obj.neutralizedRuleMap)) return null;
+        for (const arr of Object.values(obj.neutralizedRuleMap)) {
+          if (!Array.isArray(arr) || !arr.every((item) => typeof item === "string")) return null;
+        }
+        if (!obj.excisedFeeMap || typeof obj.excisedFeeMap !== "object" || Array.isArray(obj.excisedFeeMap)) return null;
+        for (const val of Object.values(obj.excisedFeeMap)) {
+          if (typeof val !== "boolean") return null;
+        }
+        if (!obj.sealStampedMap || typeof obj.sealStampedMap !== "object" || Array.isArray(obj.sealStampedMap)) return null;
+        for (const val of Object.values(obj.sealStampedMap)) {
+          if (typeof val !== "boolean") return null;
+        }
+        if (typeof obj.checksum !== "string" || !/^[0-9a-f]{8}$/i.test(obj.checksum)) return null;
+        const expected = computeChecksum(obj);
+        if (obj.checksum.toLowerCase() !== expected) return null;
+        return obj;
+      }
+
+      function cloneMutable(s) {
+        const nr = {};
+        for (const k of Object.keys(s.neutralizedRuleMap)) nr[k] = s.neutralizedRuleMap[k].slice();
+        return {
+          version: 1,
+          theme: s.theme,
+          asmrMixLevel: s.asmrMixLevel,
+          defaultTone: s.defaultTone,
+          airGapLocked: s.airGapLocked,
+          activeSpecimenId: s.activeSpecimenId,
+          dailyStreakDate: s.dailyStreakDate,
+          lifetimeTrapsNeutralized: s.lifetimeTrapsNeutralized,
+          lifetimeAnnualDollarsSaved: s.lifetimeAnnualDollarsSaved,
+          selfHealRecoveries: s.selfHealRecoveries,
+          neutralizedRuleMap: nr,
+          excisedFeeMap: Object.assign({}, s.excisedFeeMap),
+          sealStampedMap: Object.assign({}, s.sealStampedMap),
+          checksum: s.checksum
+        };
+      }
+
+      function encodeShortCookie(state) {
+        const s = cloneMutable(state);
+        const toShort = () => {
+          const ef = {};
+          const ss = {};
+          for (const k of Object.keys(s.excisedFeeMap)) ef[k] = s.excisedFeeMap[k] ? 1 : 0;
+          for (const k of Object.keys(s.sealStampedMap)) ss[k] = s.sealStampedMap[k] ? 1 : 0;
+          return toBase64Url(utf8Encode(JSON.stringify({
+            v: 1,
+            t: s.theme === "midnight" ? "m" : "v",
+            a: s.asmrMixLevel,
+            o: s.defaultTone === "collaborative" ? "c" : s.defaultTone === "counsel" ? "n" : "b",
+            g: s.airGapLocked ? 1 : 0,
+            s: s.activeSpecimenId,
+            d: s.dailyStreakDate,
+            lt: s.lifetimeTrapsNeutralized,
+            ld: s.lifetimeAnnualDollarsSaved,
+            sr: s.selfHealRecoveries,
+            nr: s.neutralizedRuleMap,
+            ef,
+            ss,
+            c: s.checksum
+          })));
+        };
+        let encoded = toShort();
+        while (encoded.length >= 3200) {
+          const keys = Object.keys(s.neutralizedRuleMap);
+          if (keys.length > 0) {
+            const custom = keys.filter((k) => !BUILTIN_SPECIMENS[k]);
+            const target = custom.length > 0 ? custom[0] : keys[0];
+            if (keys.length > 1 || s.neutralizedRuleMap[target].length <= 1) {
+              delete s.neutralizedRuleMap[target];
+            } else {
+              s.neutralizedRuleMap[target].shift();
+            }
+          } else {
+            const efKeys = Object.keys(s.excisedFeeMap);
+            const ssKeys = Object.keys(s.sealStampedMap);
+            if (efKeys.length > 0) delete s.excisedFeeMap[efKeys[0]];
+            else if (ssKeys.length > 0) delete s.sealStampedMap[ssKeys[0]];
+            else break;
+          }
+          s.checksum = computeChecksum(s);
+          encoded = toShort();
+        }
+        return encoded;
+      }
+
+      function decodeShortCookie(encoded) {
+        if (typeof encoded !== "string" || encoded.length === 0 || encoded.length >= 3500) return null;
+        const bytes = fromBase64Url(encoded);
+        if (!bytes || !decoder) return null;
+        let p;
+        try { p = JSON.parse(decoder.decode(bytes)); } catch { return null; }
+        if (!p || typeof p !== "object" || p.v !== 1) return null;
+        const theme = p.t === "m" ? "midnight" : p.t === "v" ? "vellum" : null;
+        const tone = p.o === "c" ? "collaborative" : p.o === "b" ? "bilateral" : p.o === "n" ? "counsel" : null;
+        if (!theme || !tone || (p.g !== 0 && p.g !== 1)) return null;
+        if (!p.ef || typeof p.ef !== "object" || !p.ss || typeof p.ss !== "object") return null;
+        const ef = {};
+        const ss = {};
+        for (const k of Object.keys(p.ef)) ef[k] = Boolean(p.ef[k]);
+        for (const k of Object.keys(p.ss)) ss[k] = Boolean(p.ss[k]);
+        return validateState({
+          version: 1,
+          theme,
+          asmrMixLevel: p.a,
+          defaultTone: tone,
+          airGapLocked: p.g === 1,
+          activeSpecimenId: p.s,
+          dailyStreakDate: p.d,
+          lifetimeTrapsNeutralized: p.lt,
+          lifetimeAnnualDollarsSaved: p.ld,
+          selfHealRecoveries: p.sr,
+          neutralizedRuleMap: p.nr,
+          excisedFeeMap: ef,
+          sealStampedMap: ss,
+          checksum: p.c
+        });
+      }
+
+      function readCookie() {
+        try {
+          const parts = document.cookie.split(";");
+          for (let i = 0; i < parts.length; i += 1) {
+            const idx = parts[i].indexOf("=");
+            if (idx > 0 && parts[i].slice(0, idx).trim() === COOKIE_NAME) {
+              return parts[i].slice(idx + 1).trim();
+            }
+          }
+        } catch {}
+        return null;
+      }
+
+      function writeCookie(state) {
+        try {
+          document.cookie = COOKIE_NAME + "=" + encodeShortCookie(state) + "; " + COOKIE_ATTRS;
+        } catch {}
+      }
+
+      let lsRaw = null;
+      try { lsRaw = localStorage.getItem(LS_KEY); } catch {}
+
+      const bakedState = validateState(window.__CLAUSEHOUND_BAKED_VAULT__);
+      const lsState = validateState(lsRaw);
+      const cookieState = decodeShortCookie(readCookie());
+
+      let activeState = null;
+
+      if (bakedState && !lsState) {
+        activeState = cloneMutable(bakedState);
+        try { localStorage.setItem(LS_KEY, JSON.stringify(activeState)); } catch {}
+        writeCookie(activeState);
+        window.__CLAUSEHOUND_BOOT_HEAL__ = { healed: true, source: "baked", state: activeState };
+      } else if (!lsState && cookieState) {
+        activeState = cloneMutable(cookieState);
+        activeState.selfHealRecoveries += 1;
+        activeState.checksum = computeChecksum(activeState);
+        try { localStorage.setItem(LS_KEY, JSON.stringify(activeState)); } catch {}
+        writeCookie(activeState);
+        window.__CLAUSEHOUND_BOOT_HEAL__ = { healed: true, source: "cookie", state: activeState };
+      } else if (lsState) {
+        activeState = lsState;
+        if (!cookieState || cookieState.checksum !== lsState.checksum) {
+          writeCookie(lsState);
+        }
+      } else if (bakedState) {
+        activeState = bakedState;
+      }
+
+      const resolvedTheme = (activeState && activeState.theme) || "vellum";
+      document.documentElement.dataset.theme = resolvedTheme;
+    })();
+  </script>
+</head>
+<body>
+  <div id="app-desk-root" class="faraday-desk-shell">
+    <header id="command-rail-slot"></header>
+    <section id="telemetry-strip-slot" aria-label="Audit Telemetry"></section>
+    <main id="studio-workspace-slot"></main>
+    <div id="overlay-portal-slot"></div>
+    <div id="toast-region-slot" aria-live="polite"></div>
+  </div>
+  <script type="module" src="./src/ui/app-shell.js"></script>
+</body>
+</html>
